@@ -1,0 +1,11 @@
+services:
+  idx-unified-market-api:
+    build: .
+    container_name: idx-unified-market-api
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - APP_NAME=IDX Unified Market Intel API
+      - APP_VERSION=3.0.0
+      - CACHE_TTL_SECONDS=300
