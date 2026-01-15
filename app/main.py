@@ -10,7 +10,8 @@ from app.routers.news import router as news_router
 from app.routers.whale import router as whale_router
 from app.routers.tools import router as tools_router
 
-
+# 🔥 TAMBAHAN
+from app.routers.chart import router as chart_router
 
 
 app = FastAPI(title=APP_NAME, version=APP_VERSION)
@@ -24,12 +25,24 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ===== EXISTING ROUTERS =====
 app.include_router(health_router)
 app.include_router(analyze_router)
 app.include_router(news_router)
 app.include_router(whale_router)
 app.include_router(tools_router)
 
+# ===== NEW CHART ROUTER =====
+app.include_router(
+    chart_router,
+    prefix="/api",
+    tags=["Chart"]
+)
+
 @app.get("/")
 def root():
-    return {"name": APP_NAME, "version": APP_VERSION, "docs": "/docs"}
+    return {
+        "name": APP_NAME,
+        "version": APP_VERSION,
+        "docs": "/docs"
+    }

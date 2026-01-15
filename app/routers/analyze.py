@@ -37,7 +37,7 @@ def analyze_post(
         if req.with_news is None else req.with_news
     )
 
-    # 🔥 BARU: broker consensus (default ON)
+    # 🔥 broker consensus (default ON)
     with_broker = (
         True
         if not hasattr(req, "with_broker") or req.with_broker is None
@@ -53,10 +53,7 @@ def analyze_post(
         with_technical=with_technical,
         with_whale=with_whale,
         with_news=with_news,
-        with_broker=with_broker,     
-        news_items=req.news_items,
-        fetch_news=req.fetch_news,
-        news_query=req.news_query,
+        with_broker=with_broker,
         period=req.period,
         interval=req.interval,
         rsi_period=req.rsi_period,
@@ -79,7 +76,7 @@ def analyze_get(ticker: str, style: str = "ringkas"):
         ticker,
         style=style,
         with_news=False,
-        with_broker=True,  
+        with_broker=True,
     )
 
     return envelope(

@@ -1,13 +1,11 @@
 from __future__ import annotations
-
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from app.services.fundamental import get_fundamental
 from app.services.technical import analyze_technical
 from app.services.whale import whale_alert
-from app.services.news import fetch_google_news_rss, veteran_news_analysis
+from app.services.news_engine import run_news_engine
 from app.services.broker_consensus import analyze_broker_consensus
-from app.models.schemas import NewsItem
 
 
 # ======================================================
@@ -82,16 +80,11 @@ def combine_analysis(
     with_whale: bool = True,
     with_news: bool = False,
     with_broker: bool = True,
-    news_items: Optional[List[NewsItem]] = None,
-    fetch_news: bool = False,
-    news_query: Optional[str] = None,
     period: str = "2y",
     interval: str = "1d",
-
     rsi_period: int = 14,
     sma_fast: int = 20,
     sma_slow: int = 50,
-
     whale_payload: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
 
@@ -99,7 +92,7 @@ def combine_analysis(
     technical = None
     whale = None
     news = None
-    broker = {"available": False}   # default aman
+    broker = {"available": False}
 
     fundamental_score = None
     technical_score = None
@@ -135,12 +128,11 @@ def combine_analysis(
             decision = technical.get("decision", {})
             signal = decision.get("signal")
 
-            if signal == "BUY":
-                technical_score = 70.0
-            elif signal == "SELL":
-                technical_score = 30.0
-            else:
-                technical_score = 50.0
+            technical_score = (
+                70 if signal == "BUY"
+                else 30 if signal == "SELL"
+                else 50
+            )
 
             score_details["technical"] = {
                 "signal": signal,
@@ -169,7 +161,7 @@ def combine_analysis(
             whale = {"available": False, "error": str(e)}
 
     # =========================
-    # BROKER CONSENSUS
+    # BROKER
     # =========================
     if with_broker:
         try:
@@ -179,16 +171,13 @@ def combine_analysis(
                 avg = broker.get("average_rating")
 
                 if isinstance(avg, (int, float)):
-                    if avg <= 1.5:
-                        broker_score = 75
-                    elif avg <= 2.5:
-                        broker_score = 65
-                    elif avg <= 3.5:
-                        broker_score = 50
-                    elif avg <= 4.5:
-                        broker_score = 35
-                    else:
-                        broker_score = 25
+                    broker_score = (
+                        75 if avg <= 1.5 else
+                        65 if avg <= 2.5 else
+                        50 if avg <= 3.5 else
+                        35 if avg <= 4.5 else
+                        25
+                    )
 
             score_details["broker"] = broker
 
@@ -197,38 +186,22 @@ def combine_analysis(
             score_details["broker"] = broker
 
     # =========================
-    # NEWS
+    # NEWS ENGINE
     # =========================
     if with_news:
         try:
-            if news_items is None and fetch_news:
-                q = news_query or f"{symbol} saham IDX"
-                items = fetch_google_news_rss(q)
-            else:
-                items = news_items or []
-
-            news = veteran_news_analysis(symbol, items)
+            news = run_news_engine(symbol, window_days=7, limit=8)
 
             score_details["news"] = {
-                "kategori": news.get("kategori"),
-                "rating": news.get("rating"),
-                "total_items": news.get("total_items"),
+                "overall": news.get("overall_sentiment"),
+                "score": news.get("sentiment_score"),
+                "total": news.get("total_news"),
             }
 
         except Exception as e:
-            news = {
-                "available": False,
-                "kategori": "Netral",
-                "rating": None,
-                "reason": str(e),
-            }
+            news = {"available": False, "overall_sentiment": "Netral", "error": str(e)}
     else:
-        news = {
-            "available": False,
-            "kategori": "Netral",
-            "rating": None,
-            "reason": "disabled_by_flag",
-        }
+        news = {"available": False, "overall_sentiment": "Netral"}
 
     # =========================
     # COMBINE SCORE
@@ -249,25 +222,19 @@ def combine_analysis(
         total += 0.25
 
     bias = 0.0
-
     if broker.get("available"):
         up = broker.get("upside_pct")
         if isinstance(up, (int, float)):
-            if up >= 20:
-                bias += 4
-            elif up >= 10:
-                bias += 2
-            elif up <= -10:
-                bias -= 3
+            bias += 4 if up >= 20 else 2 if up >= 10 else -3 if up <= -10 else 0
 
     if total > 0:
         combined_score = sum(w * s for w, s in weights) / total + bias
         combined_score = float(max(0.0, min(100.0, combined_score)))
 
     action = (
-        "CICIL" if combined_score and combined_score >= 68
-        else "BUANG" if combined_score and combined_score <= 32
-        else "PANTAU"
+        "CICIL" if combined_score and combined_score >= 68 else
+        "BUANG" if combined_score and combined_score <= 32 else
+        "PANTAU"
     )
 
     # =========================
@@ -278,9 +245,8 @@ def combine_analysis(
         f"Skor: {combined_score:.1f}" if combined_score else None,
         f"Teknikal: {technical.get('decision', {}).get('signal')}" if technical else None,
         f"Broker: {broker.get('consensus')}" if broker.get("available") else None,
-        f"Upside: {broker.get('upside_pct')}%"
-            if broker.get("available") and broker.get("upside_pct") is not None else None,
-        f"News: {news.get('kategori')}" if news else None,
+        f"Upside: {broker.get('upside_pct')}%" if broker.get("available") else None,
+        f"News: {news.get('overall_sentiment')}" if news else None,
     ]
 
     summary = " | ".join([s for s in summary_parts if s])
