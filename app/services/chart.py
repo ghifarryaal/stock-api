@@ -31,6 +31,7 @@ def get_chart_data(ticker: str):
     if hist.empty:
         return None
 
+    # ===== INDICATOR =====
     hist["EMA20"] = hist["Close"].ewm(span=20).mean()
     hist["EMA50"] = hist["Close"].ewm(span=50).mean()
     hist = hist.dropna()
@@ -38,7 +39,20 @@ def get_chart_data(ticker: str):
     data = [
         {
             "date": d.strftime("%Y-%m-%d"),
+
+            # OHLC
+            "open": round(r["Open"], 2),
+            "high": round(r["High"], 2),
+            "low": round(r["Low"], 2),
+            "close": round(r["Close"], 2),
+
+            # Main price
             "price": round(r["Close"], 2),
+
+            # Volume
+            "volume": int(r["Volume"]),
+
+            # EMA
             "ema20": round(r["EMA20"], 2),
             "ema50": round(r["EMA50"], 2),
         }
