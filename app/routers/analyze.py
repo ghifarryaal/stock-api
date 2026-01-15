@@ -4,19 +4,45 @@ from fastapi import APIRouter, Body, Path
 from app.models.schemas import AnalyzeRequest
 from app.services.combined import combine_analysis
 from app.config import (
-    DEFAULT_WITH_FUNDAMENTAL, DEFAULT_WITH_TECHNICAL, DEFAULT_WITH_WHALE, DEFAULT_WITH_NEWS,
+    DEFAULT_WITH_FUNDAMENTAL,
+    DEFAULT_WITH_TECHNICAL,
+    DEFAULT_WITH_WHALE,
+    DEFAULT_WITH_NEWS,
     APP_VERSION,
 )
 from app.utils import envelope
 
 router = APIRouter(prefix="/v1", tags=["analysis"])
 
+
 @router.post("/analyze/{ticker}")
-def analyze_post(ticker: str = Path(..., description="Contoh: BBCA.JK"), req: AnalyzeRequest = Body(default=AnalyzeRequest())):
-    with_fundamental = DEFAULT_WITH_FUNDAMENTAL if req.with_fundamental is None else req.with_fundamental
-    with_technical = DEFAULT_WITH_TECHNICAL if req.with_technical is None else req.with_technical
-    with_whale = DEFAULT_WITH_WHALE if req.with_whale is None else req.with_whale
-    with_news = DEFAULT_WITH_NEWS if req.with_news is None else req.with_news
+def analyze_post(
+    ticker: str = Path(..., description="Contoh: BBCA.JK"),
+    req: AnalyzeRequest = Body(default=AnalyzeRequest())
+):
+    with_fundamental = (
+        DEFAULT_WITH_FUNDAMENTAL
+        if req.with_fundamental is None else req.with_fundamental
+    )
+    with_technical = (
+        DEFAULT_WITH_TECHNICAL
+        if req.with_technical is None else req.with_technical
+    )
+    with_whale = (
+        DEFAULT_WITH_WHALE
+        if req.with_whale is None else req.with_whale
+    )
+    with_news = (
+        DEFAULT_WITH_NEWS
+        if req.with_news is None else req.with_news
+    )
+
+    # 🔥 BARU: broker consensus (default ON)
+    with_broker = (
+        True
+        if not hasattr(req, "with_broker") or req.with_broker is None
+        else req.with_broker
+    )
 
     whale_payload = req.whale.model_dump() if req.whale else None
 
@@ -27,6 +53,7 @@ def analyze_post(ticker: str = Path(..., description="Contoh: BBCA.JK"), req: An
         with_technical=with_technical,
         with_whale=with_whale,
         with_news=with_news,
+        with_broker=with_broker,     
         news_items=req.news_items,
         fetch_news=req.fetch_news,
         news_query=req.news_query,
@@ -37,9 +64,27 @@ def analyze_post(ticker: str = Path(..., description="Contoh: BBCA.JK"), req: An
         sma_slow=req.sma_slow,
         whale_payload=whale_payload,
     )
-    return envelope(tool="idx_stock_analyzer", operation="analyze", data=res, meta={"version": APP_VERSION})
+
+    return envelope(
+        tool="idx_stock_analyzer",
+        operation="analyze",
+        data=res,
+        meta={"version": APP_VERSION}
+    )
+
 
 @router.get("/analyze/{ticker}")
 def analyze_get(ticker: str, style: str = "ringkas"):
-    res = combine_analysis(ticker, style=style, with_news=False)
-    return envelope(tool="idx_stock_analyzer", operation="analyze", data=res, meta={"version": APP_VERSION})
+    res = combine_analysis(
+        ticker,
+        style=style,
+        with_news=False,
+        with_broker=True,  
+    )
+
+    return envelope(
+        tool="idx_stock_analyzer",
+        operation="analyze",
+        data=res,
+        meta={"version": APP_VERSION}
+    )

@@ -6,6 +6,7 @@ from app.services.fundamental import get_fundamental
 from app.services.technical import analyze_technical
 from app.services.whale import whale_alert
 from app.services.news import fetch_google_news_rss, veteran_news_analysis
+from app.services.broker_consensus import analyze_broker_consensus
 from app.models.schemas import NewsItem
 
 
@@ -70,7 +71,7 @@ def score_fundamental(ratios: Dict[str, Any]) -> Dict[str, Any]:
 
 
 # ======================================================
-# MAIN COMBINE ANALYSIS (FINAL)
+# MAIN COMBINE ANALYSIS
 # ======================================================
 def combine_analysis(
     symbol: str,
@@ -80,13 +81,13 @@ def combine_analysis(
     with_technical: bool = True,
     with_whale: bool = True,
     with_news: bool = False,
+    with_broker: bool = True,
     news_items: Optional[List[NewsItem]] = None,
     fetch_news: bool = False,
     news_query: Optional[str] = None,
     period: str = "2y",
     interval: str = "1d",
 
-    # kompatibilitas router
     rsi_period: int = 14,
     sma_fast: int = 20,
     sma_slow: int = 50,
@@ -98,9 +99,11 @@ def combine_analysis(
     technical = None
     whale = None
     news = None
+    broker = {"available": False}   # default aman
 
     fundamental_score = None
     technical_score = None
+    broker_score = None
     combined_score = None
 
     score_details = {
@@ -108,6 +111,7 @@ def combine_analysis(
         "technical": None,
         "news": None,
         "whale": None,
+        "broker": None,
     }
 
     # =========================
@@ -165,7 +169,35 @@ def combine_analysis(
             whale = {"available": False, "error": str(e)}
 
     # =========================
-    # NEWS (ANTI-NULL)
+    # BROKER CONSENSUS
+    # =========================
+    if with_broker:
+        try:
+            broker = analyze_broker_consensus(symbol)
+
+            if broker.get("available"):
+                avg = broker.get("average_rating")
+
+                if isinstance(avg, (int, float)):
+                    if avg <= 1.5:
+                        broker_score = 75
+                    elif avg <= 2.5:
+                        broker_score = 65
+                    elif avg <= 3.5:
+                        broker_score = 50
+                    elif avg <= 4.5:
+                        broker_score = 35
+                    else:
+                        broker_score = 25
+
+            score_details["broker"] = broker
+
+        except Exception as e:
+            broker = {"available": False, "error": str(e)}
+            score_details["broker"] = broker
+
+    # =========================
+    # NEWS
     # =========================
     if with_news:
         try:
@@ -190,16 +222,13 @@ def combine_analysis(
                 "rating": None,
                 "reason": str(e),
             }
-            score_details["news"] = {"error": str(e)}
     else:
-        # 🔒 PENTING: jangan biarkan null
         news = {
             "available": False,
             "kategori": "Netral",
             "rating": None,
             "reason": "disabled_by_flag",
         }
-        score_details["news"] = {"reason": "disabled_by_flag"}
 
     # =========================
     # COMBINE SCORE
@@ -208,26 +237,36 @@ def combine_analysis(
     total = 0.0
 
     if isinstance(fundamental_score, (int, float)):
-        weights.append((0.55, fundamental_score))
-        total += 0.55
+        weights.append((0.45, fundamental_score))
+        total += 0.45
 
     if isinstance(technical_score, (int, float)):
-        weights.append((0.35, technical_score))
-        total += 0.35
+        weights.append((0.30, technical_score))
+        total += 0.30
+
+    if isinstance(broker_score, (int, float)):
+        weights.append((0.25, broker_score))
+        total += 0.25
 
     bias = 0.0
-    if whale and whale.get("is_whale_detected"):
-        bias += 3.0
-    if news and news.get("kategori") == "Rumor":
-        bias -= 2.0
+
+    if broker.get("available"):
+        up = broker.get("upside_pct")
+        if isinstance(up, (int, float)):
+            if up >= 20:
+                bias += 4
+            elif up >= 10:
+                bias += 2
+            elif up <= -10:
+                bias -= 3
 
     if total > 0:
         combined_score = sum(w * s for w, s in weights) / total + bias
         combined_score = float(max(0.0, min(100.0, combined_score)))
 
     action = (
-        "CICIL" if combined_score is not None and combined_score >= 68
-        else "BUANG" if combined_score is not None and combined_score <= 32
+        "CICIL" if combined_score and combined_score >= 68
+        else "BUANG" if combined_score and combined_score <= 32
         else "PANTAU"
     )
 
@@ -236,10 +275,14 @@ def combine_analysis(
     # =========================
     summary_parts = [
         symbol,
-        f"Skor: {combined_score:.1f}" if combined_score is not None else None,
+        f"Skor: {combined_score:.1f}" if combined_score else None,
         f"Teknikal: {technical.get('decision', {}).get('signal')}" if technical else None,
+        f"Broker: {broker.get('consensus')}" if broker.get("available") else None,
+        f"Upside: {broker.get('upside_pct')}%"
+            if broker.get("available") and broker.get("upside_pct") is not None else None,
         f"News: {news.get('kategori')}" if news else None,
     ]
+
     summary = " | ".join([s for s in summary_parts if s])
 
     return {
@@ -248,13 +291,15 @@ def combine_analysis(
         "scores": {
             "fundamental_score": fundamental_score,
             "technical_score": technical_score,
+            "broker_score": broker_score,
             "combined_score": combined_score,
             "action": action,
             "details": score_details,
         },
         "fundamental": fundamental,
         "technical": technical,
+        "broker_consensus": broker,
         "whale": whale,
-        "news": news,   # ⬅️ TIDAK PERNAH NULL
+        "news": news,
         "summary": summary,
     }
