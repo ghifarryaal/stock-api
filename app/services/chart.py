@@ -1,37 +1,49 @@
 import yfinance as yf
-import time
+from app.core.cache import get_cache, set_cache
+from app.core.syariah import SYARIAH_SET
 
-# ===== CACHE =====
-CACHE = {}
-CACHE_TTL = 300  # 5 menit
+
+def is_syariah(ticker):
+    return ticker.replace(".JK","") in SYARIAH_SET
+
+
+def is_suspended(hist):
+    if hist.empty:
+        return True
+
+    last_vol = hist["Volume"].tail(5)
+    if (last_vol == 0).all():
+        return True
+
+    return False
+
 
 def get_chart_data(ticker: str):
-
-    now = time.time()
 
     symbol = ticker.upper()
     if len(symbol) == 4 and not symbol.endswith(".JK"):
         symbol += ".JK"
 
-    # === CACHE HIT ===
-    if symbol in CACHE:
-        cached = CACHE[symbol]
-        if now - cached["time"] < CACHE_TTL:
-            print(f"[CACHE HIT] {symbol}")
-            return cached["data"]
-
-    print(f"[FETCH YAHOO] {symbol}")
+    # === CACHE ===
+    cached = get_cache(symbol)
+    if cached:
+        return cached
 
     stock = yf.Ticker(symbol)
-    hist = stock.history(
-        period="1y",
-        interval="1d"
-    )
+    hist = stock.history(period="1y", interval="1d")
+
+    suspend_status = is_suspended(hist)
 
     if hist.empty:
-        return None
+        result = {
+            "ticker": symbol,
+            "syariah": is_syariah(symbol),
+            "suspend": True,
+            "data": []
+        }
+        set_cache(symbol, result)
+        return result
 
-    # ===== INDICATOR =====
     hist["EMA20"] = hist["Close"].ewm(span=20).mean()
     hist["EMA50"] = hist["Close"].ewm(span=50).mean()
     hist = hist.dropna()
@@ -39,20 +51,12 @@ def get_chart_data(ticker: str):
     data = [
         {
             "date": d.strftime("%Y-%m-%d"),
-
-            # OHLC
             "open": round(r["Open"], 2),
             "high": round(r["High"], 2),
             "low": round(r["Low"], 2),
             "close": round(r["Close"], 2),
-
-            # Main price
             "price": round(r["Close"], 2),
-
-            # Volume
             "volume": int(r["Volume"]),
-
-            # EMA
             "ema20": round(r["EMA20"], 2),
             "ema50": round(r["EMA50"], 2),
         }
@@ -61,13 +65,10 @@ def get_chart_data(ticker: str):
 
     result = {
         "ticker": symbol,
+        "syariah": is_syariah(symbol),
+        "suspend": suspend_status,
         "data": data
     }
 
-    # SAVE CACHE
-    CACHE[symbol] = {
-        "time": now,
-        "data": result
-    }
-
+    set_cache(symbol, result)
     return result
