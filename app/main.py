@@ -15,6 +15,8 @@ from app.routers.tools import router as tools_router
 # ===== CHART =====
 from app.routers.chart import router as chart_router
 from app.routers.chart_fundamental import router as chart_fundamental_router
+from app.routers.chart_balance import router as chart_balance_router   # ✅ BARU
+from app.routers.chart_cashflow import router as chart_cashflow_router # ✅ BARU
 
 
 # ===== APP =====
@@ -50,6 +52,18 @@ app.include_router(
     chart_fundamental_router,
     prefix="/api",
     tags=["Chart Fundamental"]
+)
+
+app.include_router(
+    chart_balance_router,
+    prefix="/api",
+    tags=["Chart Balance Sheet"]
+)
+
+app.include_router(
+    chart_cashflow_router,
+    prefix="/api",
+    tags=["Chart Cash Flow"]
 )
 
 

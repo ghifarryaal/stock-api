@@ -5,6 +5,10 @@ import time
 CACHE = {}
 CACHE_TTL = 3600
 
+FX_CACHE = {}
+FX_TTL = 3600
+
+
 def get_cache(key):
     if key in CACHE:
         data, exp = CACHE[key]
@@ -13,8 +17,38 @@ def get_cache(key):
         del CACHE[key]
     return None
 
+
 def set_cache(key, value):
     CACHE[key] = (value, time.time() + CACHE_TTL)
+
+
+def get_fx_cache(key):
+    if key in FX_CACHE:
+        rate, exp = FX_CACHE[key]
+        if time.time() < exp:
+            return rate
+        del FX_CACHE[key]
+    return None
+
+
+def set_fx_cache(key, value):
+    FX_CACHE[key] = (value, time.time() + FX_TTL)
+
+
+# ================= FX =================
+def get_usd_idr_rate():
+    cached = get_fx_cache("USDIDR")
+    if cached:
+        return cached
+
+    fx = yf.Ticker("USDIDR=X")
+    hist = fx.history(period="1d")
+
+    rate = float(hist["Close"].iloc[-1])
+
+    set_fx_cache("USDIDR", rate)
+    return rate
+
 
 # ================= SCORING =================
 def scoring(data):
@@ -55,6 +89,7 @@ def scoring(data):
         "notes": notes
     }
 
+
 # ================= MAIN =================
 def get_fundamental_chart(ticker: str):
 
@@ -73,6 +108,16 @@ def get_fundamental_chart(ticker: str):
     if df.empty:
         return None
 
+    # ================= CURRENCY (IMPORTANT FIX) =================
+    financial_currency = stock.info.get("financialCurrency", "IDR")
+
+    fx_rate = 1
+    converted = False
+
+    if financial_currency == "USD":
+        fx_rate = get_usd_idr_rate()
+        converted = True
+
     result = []
     margins = []
     profits = []
@@ -84,10 +129,13 @@ def get_fundamental_chart(ticker: str):
 
     for col in df.columns[::-1]:
 
-        revenue = df.loc["Total Revenue", col]
-        profit = df.loc["Net Income", col]
+        revenue_raw = df.loc["Total Revenue", col]
+        profit_raw = df.loc["Net Income", col]
 
-        margin = round((profit / revenue) * 100, 2)
+        revenue = revenue_raw * fx_rate
+        profit = profit_raw * fx_rate
+
+        margin = round((profit_raw / revenue_raw) * 100, 2)
 
         margins.append(margin)
         profits.append(profit)
@@ -118,6 +166,18 @@ def get_fundamental_chart(ticker: str):
 
     response = {
         "ticker": symbol,
+
+        # PRICE currency (IDX = IDR)
+        "price_currency": stock.info.get("currency", "IDR"),
+
+        # FINANCIAL currency (important)
+        "financial_currency": financial_currency,
+
+        # OUTPUT
+        "currency": "IDR",
+        "fx_rate": round(fx_rate, 2),
+        "converted": converted,
+
         "chart": result,
         "analytics": analytics,
         "score": score
@@ -125,3 +185,4 @@ def get_fundamental_chart(ticker: str):
 
     set_cache(cache_key, response)
     return response
+
